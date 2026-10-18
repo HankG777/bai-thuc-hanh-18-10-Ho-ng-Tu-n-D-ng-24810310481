@@ -1,0 +1,20 @@
+
+using bai2;
+using System.ComponentModel;
+using System.Drawing;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+namespace CryptoStockTicker;
+
+public class PriceLog { public DateTime Time { get; set; } public decimal Price { get; set; } public decimal Change { get; set; } public string Direction { get; set; } = ""; }
+static class Program { [STAThread] static void Main() { ApplicationConfiguration.Initialize(); Application.Run(new MainForm()); } }
+public class MainForm : Form
+{
+    Button start = new() { Text = "Bắt đầu Giám sát", Width = 160, Height = 38 }, pause = new() { Text = "Tạm dừng", Width = 120, Height = 38, Enabled = false }; Label priceLabel = new() { Text = "BTC/USD: --", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI", 24, FontStyle.Bold) }; DataGridView grid = new(); BindingList<PriceLog> logs = new(); BindingSource bs = new(); ToolStripStatusLabel last = new() { Text = "Lần cập nhật cuối: --" }, countLabel = new() { Text = "Số lượt đồng bộ: 0" }; CancellationTokenSource? cts; decimal price = 65000m; int count = 0; Random random = new();
+    public MainForm() { Text = "Crypto Stock Ticker"; Size = new(950, 620); Build(); bs.DataSource = logs; grid.DataSource = bs; start.Click += async (_, __) => await StartLoop(); pause.Click += (_, __) => cts?.Cancel(); }
+    void Build() { var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(12), ColumnCount = 1, RowCount = 3 }; root.RowStyles.Add(new(SizeType.Absolute, 60)); root.RowStyles.Add(new(SizeType.Absolute, 130)); root.RowStyles.Add(new(SizeType.Percent, 100)); Controls.Add(root); var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill }; buttons.Controls.Add(start); buttons.Controls.Add(pause); root.Controls.Add(buttons, 0, 0); root.Controls.Add(priceLabel, 0, 1); grid.Dock = DockStyle.Fill; grid.ReadOnly = true; grid.AutoGenerateColumns = false; grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill; grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Thời gian", DataPropertyName = "Time", DefaultCellStyle = new() { Format = "HH:mm:ss" } }); grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "BTC/USD", DataPropertyName = "Price", DefaultCellStyle = new() { Format = "N2" } }); grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Biến động", DataPropertyName = "Change", DefaultCellStyle = new() { Format = "+0.00;-0.00;0.00" } }); grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Xu hướng", DataPropertyName = "Direction" }); root.Controls.Add(grid, 0, 2); var strip = new StatusStrip(); strip.Items.Add(last); strip.Items.Add(new ToolStripStatusLabel { Spring = true }); strip.Items.Add(countLabel); Controls.Add(strip); }
+    async Task StartLoop() { if (cts != null) return; cts = new(); var token = cts.Token; start.Enabled = false; pause.Enabled = true; try { await Task.Run(async () => { while (!token.IsCancellationRequested) { await Task.Delay(2000, token); decimal oldP, newP; lock (random) { oldP = price; newP = Math.Round(oldP * (1 + (decimal)(random.NextDouble() * 0.04 - 0.02)), 2); price = newP; } var change = newP - oldP; var now = DateTime.Now; var direction = change >= 0 ? "Tăng" : "Giảm"; SafeUi(() => { priceLabel.Text = $"BTC/USD: ${newP:N2}"; priceLabel.ForeColor = change >= 0 ? Color.ForestGreen : Color.Firebrick; logs.Insert(0, new() { Time = now, Price = newP, Change = change, Direction = direction }); if (logs.Count > 200) logs.RemoveAt(logs.Count - 1); count++; last.Text = "Lần cập nhật cuối: " + now.ToString("HH:mm:ss"); countLabel.Text = "Số lượt đồng bộ: " + count; }); } }, token); } catch (OperationCanceledException) { } finally { cts?.Dispose(); cts = null; if (!IsDisposed) { start.Enabled = true; pause.Enabled = false; } } }
+    void SafeUi(Action action) { if (IsDisposed || Disposing) return; if (InvokeRequired) { try { BeginInvoke(action); } catch (InvalidOperationException) { } } else action(); }
+    protected override void OnFormClosing(FormClosingEventArgs e) { cts?.Cancel(); base.OnFormClosing(e); }
+}
